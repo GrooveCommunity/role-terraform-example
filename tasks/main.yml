@@ -1,0 +1,43 @@
+---
+- name: Criando path para build do terraform
+  file:
+    path: "{{ user_build.path }}/terraform"
+    state: directory
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0700
+
+- name: Criando path para os modulos 
+  file:
+    path: "{{ user_build.path }}/terraform/modules"
+    state: directory
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0700
+
+- name: Definindo versao para o branch gtw
+  set_fact: 
+    branch_gtw: ""
+  when: branch_gtw is undefined
+
+- name: Definindo versao para o branch gtw
+  set_fact: 
+    branch_vars: ""
+  when: branch_vars is undefined
+
+- name: Instalacao de pre-requisitos
+  include_tasks: requirements.yml
+
+- name: Geracao de estrutura para o terraform
+  include_tasks: structure.yml
+
+- name: Instalacao do terraform
+  include_tasks: install.yml
+
+- name: Destruindo resources
+  include_tasks: destroy.yml
+  when: user_vars.terraform.state is defined and user_vars.terraform.state == "destroy"
+
+- name: Provisionando resources
+  include_tasks: build.yml
+  when: user_vars.terraform.state is not defined or user_vars.terraform.state == "create" or user_vars.terraform.state == "recreate"

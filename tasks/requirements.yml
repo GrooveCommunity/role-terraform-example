@@ -1,0 +1,11 @@
+---
+- name: Definindo modulo a ser recuperado
+  set_fact: 
+    module_name: spotinst-elastigroup-module
+  when: user_vars.terraform.spotinst is defined
+
+- name: Instalacao do modulo terraform 
+  git:
+    repo: "https://{{ user_repo }}:{{ pass_repo }}@bitbucket.org/{{ company }}/{{ module_name }}.git"
+    dest: "{{ user_build.path }}/terraform/modules/{{ module_name }}"
+  when: user_vars.terraform.spotinst is defined

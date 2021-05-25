@@ -1,0 +1,7 @@
+---
+- name: Execucao do terraform destroy
+  shell: "{{ user_build.path }}/terraform/bin/terraform destroy -auto-approve"
+  args:
+    chdir: "{{ user_build.path }}/terraform"
+    warn: no
+  register: result_terraform_destroy

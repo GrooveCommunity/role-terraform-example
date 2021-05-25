@@ -1,0 +1,17 @@
+---
+- name: Execucao do terraform taint
+  shell: "{{ user_build.path }}/terraform/bin/terraform taint -module=elastigroup spotinst_elastigroup_aws.default-elastigroup || true"
+  args:
+    chdir: "{{ user_build.path }}/terraform"
+    warn: no
+
+- name: Execucao do terraform apply
+  shell: "{{ user_build.path }}/terraform/bin/terraform apply -auto-approve"
+  args:
+    chdir: "{{ user_build.path }}/terraform"
+    warn: no
+  register: result_terraform_apply
+
+- name: Exibindo resultado do terraform apply
+  debug:
+    msg: "Terraform apply: {{ result_terraform_apply.stdout }}"

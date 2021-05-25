@@ -1,0 +1,70 @@
+---
+- name: Criando arquivo de provider
+  copy:
+    content: 'provider "aws" {}'
+    dest: "{{ user_build.path }}/terraform/credentials.tf"
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0700
+
+- name: Criando arquivo de policy de role
+  copy:
+    src: assume-role-policy.json
+    dest: "{{ user_build.path }}/terraform/assume-role-policy.json"
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0700
+
+- name: Criando arquivo de policy de logs
+  copy:
+    src: policy-awslogs.json
+    dest: "{{ user_build.path }}/terraform/policy-awslogs.json"
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0700
+
+- name: Populando template para o script de inicializacao
+  template: 
+    src: golang.j2
+    dest: "{{ user_build.path }}/terraform/golang.sh"
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0777
+  when: user_vars.terraform.ec2 is defined
+
+- name: Populando template para configuracao do bucket
+  template:
+    src: backend.j2
+    dest: "{{ user_build.path }}/terraform/backend.tf"
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0700
+
+- name: Populando template para configuração do iam
+  template:
+    src: iam.j2
+    dest: "{{ user_build.path }}/terraform/iam.tf"
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0700
+
+- set_fact:
+    subnets_name: ""
+
+- name: Gerando names para subnets
+  set_fact:
+    subnets_name: "{{ subnets_name + '\"${data.aws_subnet.' + item.name }}.id}\","
+  with_items: "{{ user_vars.terraform.subnets }}"
+
+- name: Acionando os agents 
+  include_tasks: agents.yml
+  when: user_vars.terraform is defined and user_vars.terraform.ec2 is defined and user_vars.terraform.ec2.agents is defined     
+
+- name: Populando template para execucao do terraform
+  template:
+    src: main.j2
+    dest: "{{ user_build.path }}/terraform/main.tf"
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0700
+

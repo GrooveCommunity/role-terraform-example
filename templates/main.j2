@@ -1,0 +1,186 @@
+data "aws_vpc" "vpc" {
+  cidr_block = "{{ user_vars.terraform.vpc_cidr }}"
+}
+
+{% for item in user_vars.terraform.subnets %}
+data "aws_subnet" "{{ item.name }}" {
+  cidr_block = "{{ item.cidr }}"
+}
+{% endfor %}
+
+{% if user_vars.terraform.ec2 is defined %}
+data "aws_ami" "ami" {
+ most_recent = true
+ name_regex = "{{ user_vars.terraform.ec2.ami_name }}-base-image-*"
+ owners = ["self"]
+}
+{% endif %}
+
+resource "aws_security_group" "aws-sg" {
+  name_prefix   = "sg{{ user_vars.terraform.project }}"
+  vpc_id        = "${data.aws_vpc.vpc.id}"
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+ 
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+{% if user_vars.terraform.target_group is defined %}
+resource "aws_lb_target_group" "tg" {
+  name        = "{{ user_vars.terraform.target_group.name }}"
+  port        = "{{ user_vars.terraform.target_group.port }}"
+  vpc_id      = "${data.aws_vpc.vpc.id}"
+  protocol    = "HTTP"
+  target_type = "{{ user_vars.terraform.target_group.type }}"
+
+  health_check {
+    healthy_threshold   = 5
+    unhealthy_threshold = 10
+    timeout             = 20
+    interval            = 25
+    path                = "/{{ user_vars.terraform.target_group.health_check }}"
+    port                = "{{ user_vars.terraform.target_group.port }}"
+    protocol            = "HTTP"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_lb" "lb" {
+  name               = "alb-{{ user_vars.terraform.project }}"
+  {% if user_vars.terraform.load_balancer.scope is defined %}
+  internal           = false
+  {% else %}
+  internal           = true
+  {% endif %}
+  load_balancer_type = "application"
+  security_groups    = ["${aws_security_group.aws-sg.id}"]
+  
+  subnets            = [{{ subnets_name[:-1] }}]
+
+  enable_deletion_protection = false
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_lb_listener" "listener-443" {
+  load_balancer_arn = "${aws_lb.lb.arn}"
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "{{ user_vars.terraform.load_balancer.ssl_policy }}"
+  certificate_arn   = "{{ user_vars.terraform.load_balancer.certificate_arn }}"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = "${aws_lb_target_group.tg.arn}"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+{% endif %}
+
+{% if user_vars.terraform.spotinst is defined %}
+module "elastigroup" {
+  source                        = "./modules/spotinst-elastigroup/"
+  spotinst_token                = "{{ token_spotinst }}"
+  spotinst_account              = "{{ spotinst_account }}"
+  project                       = "{{ user_vars.terraform.project }}"
+  desired_capacity              = "{{ user_vars.terraform.spotinst.min_size }}"
+  min_size                      = "{{ user_vars.terraform.spotinst.min_size }}"
+
+  max_size                      = "{{ user_vars.terraform.spotinst.max_size }}"
+  subnets_ids                   = [{{ subnets_name[:-1] }}]
+  image_id                      = "${data.aws_ami.ami.id}"
+  key_name                      = "{{ user_vars.terraform.ec2.key_name }}"
+  sg                            = ["${aws_security_group.aws-sg.id}"]
+  instance_types_ondemand       = "{{ user_vars.terraform.ec2.instance_type }}"
+  instance_types_spot           = ["{{ user_vars.terraform.ec2.instance_type }}"]
+  instance_types_preferred_spot = ["{{ user_vars.terraform.ec2.instance_type }}"]
+  volume_size                   = 100   region: us-east-1
+
+  tg_arns                       = ["${aws_lb_target_group.tg.arn}"]
+  health_check_type             = "TARGET_GROUP"
+}
+{% endif %}
+
+{% if user_vars.terraform.autoscaling_group is defined %}
+resource "aws_launch_configuration" "lc" {
+  name_prefix          = "{{ user_vars.terraform.project }}"
+  image_id             = "${data.aws_ami.ami.id}"
+  iam_instance_profile = "${aws_iam_instance_profile.iam_instance_profile.name}"
+
+  instance_type     = "{{ user_vars.terraform.ec2.instance_type }}"
+  enable_monitoring = "true"
+  key_name          = "{{ user_vars.terraform.ec2.key_name }}"
+
+  root_block_device {
+    volume_type           = "standard"
+    volume_size           = "100"
+    delete_on_termination = "true"
+  }
+
+  security_groups = ["${aws_security_group.aws-sg.id}"]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+{% endif %}
+
+{% if user_vars.terraform.autoscaling_group is not defined and user_vars.terraform.ec2 is defined %}
+data "template_file" "userdata" {
+    template = "${file("golang.sh")}"
+}
+
+module "ec2_cluster" {
+  source                      = "terraform-aws-modules/ec2-instance/aws"
+  version                     = "~> 2.0"
+
+  name                        = "{{ user_vars.terraform.project }}"
+  instance_count              = 1
+
+  {% if user_vars.terraform.ec2.public is defined %}
+  associate_public_ip_address = true 
+  {% endif %}
+  
+  ami                         = "${data.aws_ami.ami.id}"
+  instance_type               = "{{ user_vars.terraform.ec2.instance_type }}"
+  key_name                    = "{{ user_vars.terraform.ec2.key_name }}"
+  monitoring                  = true
+  vpc_security_group_ids      = ["${aws_security_group.aws-sg.id}"]
+  subnet_id                   = "{{ user_vars.terraform.subnets[0].id }}"
+  user_data                   = "${data.template_file.userdata.rendered}"
+
+  root_block_device = [{
+    volume_size = 100
+  }]
+
+  tags = {
+    Terraform   = "true"
+    {% if inspector is defined and inspector == true %}
+    sec_scan           = "inspector"          
+    {% endif %}
+  }
+}
+{% endif %}

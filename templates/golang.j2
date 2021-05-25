@@ -1,0 +1,5 @@
+#!/bin/bash
+
+chmod +x /tmp/gobuild.sh
+chmod +x /tmp/gobuild-archetype_gtw 
+sudo --preserve-env /tmp/gobuild.sh {{ user_vars.git.repo }} {{ branch_gtw }} {{ branch_vars }} > /var/log/gobuild.log 2>&1

@@ -1,0 +1,50 @@
+---
+- name: Definindo nome do artefato
+  set_fact:
+    terraform_pkg: terraform_0.12.1_linux_amd64.zip
+
+- name: Recuperando o binario do terraform
+  shell: "wget https://{{ user_repo }}:{{ pass_repo }}@bitbucket.org/{{ company }}/role-terraform_build/downloads/{{ terraform_pkg }}"
+  args:
+    chdir: "{{ user_build.path }}"
+    warn: no
+
+- name: Criando path para manter binario do terraform
+  file:
+    path: "{{ user_build.path }}/terraform/bin"
+    state: directory
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0700
+    
+- name: Instalando unzip
+  yum: 
+    name: unzip
+    state: present
+
+- name: Extraindo binario do terraform
+  unarchive:
+    src: "{{ user_build.path }}/{{ terraform_pkg }}"
+    dest: "{{ user_build.path }}/terraform/bin/"
+    owner: "{{ user_build.username }}"
+    group: "{{ user_build.username }}"
+    mode: 0700
+
+- name: Execucao do terraform init
+  shell: "{{ user_build.path }}/terraform/bin/terraform init"
+  args:
+    chdir: "{{ user_build.path }}/terraform"
+    warn: no
+  register: result_terraform_init
+
+- debug:
+    msg: "Terraform init: {{ result_terraform_init.stdout }}"
+
+- name: "Selecionando workspace"
+  shell: "{{ user_build.path }}/terraform/bin/terraform workspace new {{ user_vars.terraform.environment }} || true && {{ user_build.path }}/terraform/bin/terraform workspace select {{ user_vars.terraform.environment }}"
+  args:
+    chdir: "{{ user_build.path }}/terraform"
+  register: workspace_result
+
+- debug:
+    var: workspace_result.stdout

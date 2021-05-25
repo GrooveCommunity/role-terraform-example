@@ -1,0 +1,7 @@
+---
+- name: Verificando se o Inspector Agent foi acionado (instalacao)
+  set_fact:
+    inspector: true 
+  when: item  == "inspector"
+  with_items: "{{ user_vars.agents }}"
+
